@@ -12,7 +12,8 @@ var BufferWriter = bitcore.encoding.BufferWriter;
 var Opcode = bitcore.Opcode;
 var _ = require('lodash');
 
-var script_tests = require('../data/bitcoind/script_tests');
+var script_valid = require('../data/bitcoind/script_valid');
+var script_invalid = require('../data/bitcoind/script_invalid');
 var tx_valid = require('../data/bitcoind/tx_valid');
 var tx_invalid = require('../data/bitcoind/tx_invalid');
 
@@ -290,32 +291,6 @@ describe('Interpreter', function() {
     if (flagstr.indexOf('CHECKLOCKTIMEVERIFY') !== -1) {
       flags = flags | Interpreter.SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY;
     }
-    if (flagstr.indexOf('CHECKSEQUENCEVERIFY') !== -1) {
-      flags = flags | Interpreter.SCRIPT_VERIFY_CHECKSEQUENCEVERIFY;
-    }
-    if (flagstr.indexOf('NULLFAIL') !== -1) {
-      flags = flags | Interpreter.SCRIPT_VERIFY_NULLFAIL;
-    }
-
-    if (flagstr.indexOf('WITNESS') !== -1) {
-      flags = flags | Interpreter.SCRIPT_VERIFY_WITNESS;
-    }
-
-    if (flagstr.indexOf('DISCOURAGE_UPGRADABLE_WITNESS') !== -1) {
-      flags = flags | Interpreter.SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM;
-    }
-
-    if (flagstr.indexOf('CLEANSTACK') !== -1) {
-      flags = flags | Interpreter.SCRIPT_VERIFY_CLEANSTACK;
-    }
-
-    if (flagstr.indexOf('WITNESS_PUBKEYTYPE') !== -1) {
-      flags = flags | Interpreter.SCRIPT_VERIFY_WITNESS_PUBKEYTYPE;
-    }
-    if (flagstr.indexOf('MINIMALIF') !== -1) {
-      flags = flags | Interpreter.SCRIPT_VERIFY_MINIMALIF;
-    }
-
     return flags;
   };
 
@@ -325,8 +300,7 @@ describe('Interpreter', function() {
     Script.fromString(s).toString().should.equal(s);
   };
 
-  var testFixture = function(vector, expected, witness, amount) {
-    var amount = amount || 0;
+  var testFixture = function(vector, expected) {
     var scriptSig = Script.fromBitcoindString(vector[0]);
     var scriptPubkey = Script.fromBitcoindString(vector[1]);
     var flags = getFlags(vector[2]);
@@ -342,7 +316,7 @@ describe('Interpreter', function() {
     }));
     credtx.addOutput(new Transaction.Output({
       script: scriptPubkey,
-      satoshis: amount,
+      satoshis: 0
     }));
     var idbuf = credtx.id;
 
@@ -355,47 +329,33 @@ describe('Interpreter', function() {
     }));
     spendtx.addOutput(new Transaction.Output({
       script: new Script(),
-      satoshis: amount,
+      satoshis: 0
     }));
 
     var interp = new Interpreter();
-    var verified = interp.verify(scriptSig, scriptPubkey, spendtx, 0, flags, witness, amount);
+    var verified = interp.verify(scriptSig, scriptPubkey, spendtx, 0, flags);
     verified.should.equal(expected);
   };
   describe('bitcoind script evaluation fixtures', function() {
-
-    var testAllFixtures = function(set) {
+    var testAllFixtures = function(set, expected) {
       var c = 0;
       set.forEach(function(vector) {
         if (vector.length === 1) {
           return;
         }
         c++;
-
-        var witness, amount;
-        if (_.isArray(vector[0])) {
-          var extra = vector.shift();
-          amount = extra.pop()  * 1e8;
-          witness = extra.map(function(x) { 
-            return Buffer.from(x,'hex');
-          });
-        } else {
-          return;
-        }
-
+        var descstr = vector[3];
         var fullScriptString = vector[0] + ' ' + vector[1];
-        var expected = vector[3] == 'OK';
-        var descstr = vector[4];
-
         var comment = descstr ? (' (' + descstr + ')') : '';
-        it('should ' + vector[3] + ' script_tests ' +
+        it('should pass script_' + (expected ? '' : 'in') + 'valid ' +
           'vector #' + c + ': ' + fullScriptString + comment,
           function() {
-            testFixture(vector, expected, witness, amount);
+            testFixture(vector, expected);
           });
       });
     };
-    testAllFixtures(script_tests);
+    testAllFixtures(script_valid, true);
+    testAllFixtures(script_invalid, false);
 
   });
   describe('bitcoind transaction evaluation fixtures', function() {
@@ -410,8 +370,8 @@ describe('Interpreter', function() {
         it('should pass tx_' + (expected ? '' : 'in') + 'valid vector ' + cc, function() {
           var inputs = vector[0];
           var txhex = vector[1];
-
           var flags = getFlags(vector[2]);
+
           var map = {};
           inputs.forEach(function(input) {
             var txid = input[0];
